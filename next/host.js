@@ -1,5 +1,7 @@
-// The browser host for the Rust game (rust/game): it loads the wasm, feeds it the clock and the buttons, and shows
-// the 320x180 frame it draws. Everything else happens in Rust.
+// The browser host for the Bevy build of the game (rust/app): it loads the wasm, passes in the buttons, the finger
+// on the screen and the sound card's requests for samples. Bevy draws into the page's canvas itself.
+import init, { press, touch, sound_start, sound_fill } from './tempora.js';
+
 const W = 320, H = 180;
 const KEYS = { ArrowUp: 0, ArrowDown: 1, ArrowLeft: 2, ArrowRight: 3, KeyW: 0, KeyS: 1, KeyA: 2, KeyD: 3, KeyZ: 4, Space: 4, KeyJ: 4, KeyX: 5, Backspace: 5, Escape: 5, KeyK: 5, Enter: 6, ShiftLeft: 7, ShiftRight: 7 };
 
@@ -32,47 +34,46 @@ function gate() {
 async function main() {
   await gate();
   const canvas = document.getElementById('screen');
-  const ctx = canvas.getContext('2d');
-  const dec = new TextDecoder(), enc = new TextEncoder();
-  let mem, ex, pending = null;
-  const str = (p, n) => dec.decode(new Uint8Array(mem.buffer, p, n));
-  const env = {
-    host_log: (p, n) => console.log(str(p, n)),
-    host_storage_get: (kp, kn) => {
-      const v = localStorage.getItem(str(kp, kn));
-      if (v === null) return -1;
-      pending = enc.encode(v);
-      return pending.length;
-    },
-    host_storage_read: (dst) => {
-      new Uint8Array(mem.buffer, dst, pending.length).set(pending);
-      pending = null;
-    },
-    host_storage_set: (kp, kn, vp, vn) => localStorage.setItem(str(kp, kn), str(vp, vn)),
-    host_random: () => Math.random(),
-    host_time: () => Date.now(),
-    host_tz: () => new Date().getTimezoneOffset(),
+  if ('ontouchstart' in window) document.body.classList.add('touch');
+  // the buttons and the screen are wired up before the game starts, so nothing is missed
+  addEventListener('keydown', (e) => {
+    const c = KEYS[e.code];
+    if (c !== undefined) {
+      if (ready) press(c, true);
+      e.preventDefault();
+    }
+  });
+  addEventListener('keyup', (e) => {
+    const c = KEYS[e.code];
+    if (c !== undefined && ready) press(c, false);
+  });
+  canvas.style.touchAction = 'none';
+  const toGame = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H];
   };
-  const res = await fetch('tempora.wasm');
-  const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), { env });
-  ex = instance.exports;
-  mem = ex.memory;
-  const q = enc.encode(location.search);
-  const qp = ex.args_buffer(q.length);
-  new Uint8Array(mem.buffer, qp, q.length).set(q);
-  ex.init();
-  window.__rust = ex;
-  const loop = (t) => {
-    ex.frame(t);
-    const fb = ex.framebuffer();
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(mem.buffer, fb, W * H * 4), W, H), 0, 0);
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-  // sound: the game synthesises it (rust/game/src/audio.rs); here we only hand its samples to the speakers. Browsers
-  // allow audio only after a touch or a key, so it starts on the first one.
+  canvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    if (ready) touch(0, ...toGame(e));
+  });
+  canvas.addEventListener('pointermove', (e) => ready && touch(1, ...toGame(e)));
+  canvas.addEventListener('pointerup', (e) => ready && touch(2, ...toGame(e)));
+  canvas.addEventListener('pointercancel', () => ready && touch(2, -999, -999));
+  addEventListener('blur', () => { if (ready) for (let k = 0; k < 8; k++) press(k, false); });
+  for (const b of document.querySelectorAll('#pad .btn')) {
+    const k = Number(b.dataset.k);
+    const on = (e) => { e.preventDefault(); b.classList.add('on'); if (ready) press(k, true); };
+    const off = (e) => { e.preventDefault(); b.classList.remove('on'); if (ready) press(k, false); };
+    b.addEventListener('touchstart', on, { passive: false });
+    b.addEventListener('touchend', off, { passive: false });
+    b.addEventListener('touchcancel', off, { passive: false });
+  }
+  // sound: the game synthesises it; here we only hand its samples to the speakers. Browsers allow audio only after a
+  // touch or a key, so it starts on the first one.
   let audio = null;
   const startAudio = () => {
+    if (!ready) return;
     if (audio) {
       if (audio.state === 'suspended') audio.resume();
       return;
@@ -83,50 +84,20 @@ async function main() {
       return;
     }
     const node = audio.createScriptProcessor(2048, 0, 1);
-    node.onaudioprocess = (e) => {
-      const out = e.outputBuffer.getChannelData(0);
-      out.set(new Float32Array(mem.buffer, ex.audio_fill(out.length), out.length));
-    };
+    node.onaudioprocess = (e) => e.outputBuffer.getChannelData(0).set(sound_fill(e.outputBuffer.length));
     node.connect(audio.destination);
-    ex.audio_start(audio.sampleRate);
+    sound_start(audio.sampleRate);
     if (audio.state === 'suspended') audio.resume();
   };
   for (const ev of ['keydown', 'pointerdown', 'touchstart']) addEventListener(ev, startAudio, { capture: true, passive: true });
-  addEventListener('keydown', (e) => {
-    const c = KEYS[e.code];
-    if (c !== undefined) {
-      ex.key(c, 1);
-      e.preventDefault();
-    }
-  });
-  addEventListener('keyup', (e) => {
-    const c = KEYS[e.code];
-    if (c !== undefined) ex.key(c, 0);
-  });
-  // touching the screen itself: taps walk you somewhere or pick a menu item
-  canvas.style.touchAction = 'none';
-  const toGame = (e) => {
-    const r = canvas.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H];
-  };
-  canvas.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    canvas.setPointerCapture(e.pointerId);
-    ex.pointer(0, ...toGame(e));
-  });
-  canvas.addEventListener('pointermove', (e) => ex.pointer(1, ...toGame(e)));
-  canvas.addEventListener('pointerup', (e) => ex.pointer(2, ...toGame(e)));
-  canvas.addEventListener('pointercancel', (e) => ex.pointer(2, -999, -999));
-  addEventListener('blur', () => { for (let k = 0; k < 8; k++) ex.key(k, 0); });
-  // the touch pad
-  if ('ontouchstart' in window) document.body.classList.add('touch');
-  for (const b of document.querySelectorAll('#pad .btn')) {
-    const k = Number(b.dataset.k);
-    const on = (e) => { e.preventDefault(); b.classList.add('on'); ex.key(k, 1); };
-    const off = (e) => { e.preventDefault(); b.classList.remove('on'); ex.key(k, 0); };
-    b.addEventListener('touchstart', on, { passive: false });
-    b.addEventListener('touchend', off, { passive: false });
-    b.addEventListener('touchcancel', off, { passive: false });
+  // Bevy's event loop doesn't return the usual way (it may throw to hand control back to the browser): that's expected
+  try {
+    await init();
+  } catch (e) {
+    if (!String(e).includes('Using exceptions for control flow')) throw e;
   }
+  ready = true;
+  document.getElementById('loading')?.remove();
 }
+let ready = false;
 main();
