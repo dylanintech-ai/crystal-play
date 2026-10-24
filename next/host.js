@@ -1,7 +1,7 @@
 // The browser host for the Rust game (rust/game): it loads the wasm, feeds it the clock and the buttons, and shows
 // the 320x180 frame it draws. Everything else happens in Rust.
 const W = 320, H = 180;
-const KEYS = { ArrowUp: 0, ArrowDown: 1, ArrowLeft: 2, ArrowRight: 3, KeyW: 0, KeyS: 1, KeyA: 2, KeyD: 3, KeyZ: 4, Space: 4, KeyX: 5, Backspace: 5, Enter: 6, ShiftRight: 7 };
+const KEYS = { ArrowUp: 0, ArrowDown: 1, ArrowLeft: 2, ArrowRight: 3, KeyW: 0, KeyS: 1, KeyA: 2, KeyD: 3, KeyZ: 4, Space: 4, KeyJ: 4, KeyX: 5, Backspace: 5, Escape: 5, KeyK: 5, Enter: 6, ShiftLeft: 7, ShiftRight: 7 };
 
 // The same light password gate as the main game (src/gate.ts): unlocking either unlocks both.
 const GATE = '0543607d65abbb0de222730d0c26df5ec268dde404758071d9cc8403c1c3815b';
@@ -51,6 +51,7 @@ async function main() {
     host_storage_set: (kp, kn, vp, vn) => localStorage.setItem(str(kp, kn), str(vp, vn)),
     host_random: () => Math.random(),
     host_time: () => Date.now(),
+    host_tz: () => new Date().getTimezoneOffset(),
   };
   const res = await fetch('tempora.wasm');
   const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), { env });
@@ -79,6 +80,21 @@ async function main() {
     const c = KEYS[e.code];
     if (c !== undefined) ex.key(c, 0);
   });
+  // touching the screen itself: taps walk you somewhere or pick a menu item
+  canvas.style.touchAction = 'none';
+  const toGame = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H];
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    ex.pointer(0, ...toGame(e));
+  });
+  canvas.addEventListener('pointermove', (e) => ex.pointer(1, ...toGame(e)));
+  canvas.addEventListener('pointerup', (e) => ex.pointer(2, ...toGame(e)));
+  canvas.addEventListener('pointercancel', (e) => ex.pointer(2, -999, -999));
+  addEventListener('blur', () => { for (let k = 0; k < 8; k++) ex.key(k, 0); });
   // the touch pad
   if ('ontouchstart' in window) document.body.classList.add('touch');
   for (const b of document.querySelectorAll('#pad .btn')) {
