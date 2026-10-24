@@ -69,6 +69,29 @@ async function main() {
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
+  // sound: the game synthesises it (rust/game/src/audio.rs); here we only hand its samples to the speakers. Browsers
+  // allow audio only after a touch or a key, so it starts on the first one.
+  let audio = null;
+  const startAudio = () => {
+    if (audio) {
+      if (audio.state === 'suspended') audio.resume();
+      return;
+    }
+    try {
+      audio = new (window.AudioContext || window.webkitAudioContext)();
+    } catch {
+      return;
+    }
+    const node = audio.createScriptProcessor(2048, 0, 1);
+    node.onaudioprocess = (e) => {
+      const out = e.outputBuffer.getChannelData(0);
+      out.set(new Float32Array(mem.buffer, ex.audio_fill(out.length), out.length));
+    };
+    node.connect(audio.destination);
+    ex.audio_start(audio.sampleRate);
+    if (audio.state === 'suspended') audio.resume();
+  };
+  for (const ev of ['keydown', 'pointerdown', 'touchstart']) addEventListener(ev, startAudio, { capture: true, passive: true });
   addEventListener('keydown', (e) => {
     const c = KEYS[e.code];
     if (c !== undefined) {
