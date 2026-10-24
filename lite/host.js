@@ -52,6 +52,18 @@ async function main() {
     host_random: () => Math.random(),
     host_time: () => Date.now(),
     host_tz: () => new Date().getTimezoneOffset(),
+    host_download: (np, nn, tp, tn) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([str(tp, tn)], { type: 'application/json' }));
+      a.download = str(np, nn);
+      a.click();
+    },
+    host_prompt: (mp, mn) => {
+      const v = window.prompt(str(mp, mn));
+      if (v === null) return -1;
+      pending = enc.encode(v);
+      return pending.length;
+    },
   };
   const res = await fetch('tempora.wasm');
   const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), { env });
@@ -93,6 +105,7 @@ async function main() {
   };
   for (const ev of ['keydown', 'pointerdown', 'touchstart']) addEventListener(ev, startAudio, { capture: true, passive: true });
   addEventListener('keydown', (e) => {
+    if (e.code === 'KeyF') return ex.fast(1);
     const c = KEYS[e.code];
     if (c !== undefined) {
       ex.key(c, 1);
@@ -100,6 +113,7 @@ async function main() {
     }
   });
   addEventListener('keyup', (e) => {
+    if (e.code === 'KeyF') return ex.fast(0);
     const c = KEYS[e.code];
     if (c !== undefined) ex.key(c, 0);
   });
