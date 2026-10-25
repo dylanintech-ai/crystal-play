@@ -76,8 +76,8 @@ async function main() {
       a.download = str(np, nn);
       a.click();
     },
-    host_prompt: (mp, mn) => {
-      const v = window.prompt(str(mp, mn));
+    host_prompt: (mp, mn, dp, dn) => {
+      const v = window.prompt(str(mp, mn), str(dp, dn));
       if (v === null) return -1;
       pending = enc.encode(v);
       return pending.length;
