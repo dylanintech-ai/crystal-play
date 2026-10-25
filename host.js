@@ -36,6 +36,31 @@ function gate() {
 let ready = false;
 const send = (k, down) => ready && press(k, down);
 
+// If the game ever stops with an error, say so and offer a way back in, rather than leaving a frozen screen.
+function crashed() {
+  if (document.getElementById('crash')) return;
+  const box = document.createElement('div');
+  box.id = 'crash';
+  box.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center;padding:24px;background:rgba(16,16,24,0.94);color:#c8d2f0;font:600 16px -apple-system,system-ui,sans-serif;text-align:center';
+  const msg = document.createElement('div');
+  msg.textContent = 'Something went wrong and the game stopped. Your last save is safe.';
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:12px';
+  const button = (label, go) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'font:700 16px -apple-system,system-ui,sans-serif;padding:12px 18px;border-radius:10px;border:0;background:#4f7cff;color:#fff';
+    b.onclick = go;
+    row.appendChild(b);
+  };
+  button('Reload', () => location.reload());
+  button('Light version', () => location.assign('lite/'));
+  box.append(msg, row);
+  document.body.appendChild(box);
+}
+addEventListener('error', (e) => e.error instanceof WebAssembly.RuntimeError && crashed());
+addEventListener('unhandledrejection', (e) => e.reason instanceof WebAssembly.RuntimeError && crashed());
+
 // ---------------------------------------------------------------- the on-screen pad (phones and tablets)
 const isTouch = () => matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 

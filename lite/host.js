@@ -29,6 +29,24 @@ function gate() {
   });
 }
 
+// If the game ever stops with an error, say so and offer a way back in, rather than leaving a frozen screen.
+function crashed() {
+  if (document.getElementById('crash')) return;
+  const box = document.createElement('div');
+  box.id = 'crash';
+  box.style.cssText = 'position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center;padding:24px;background:rgba(16,16,24,0.94);color:#c8d2f0;font:600 16px -apple-system,system-ui,sans-serif;text-align:center';
+  const msg = document.createElement('div');
+  msg.textContent = 'Something went wrong and the game stopped. Your last save is safe.';
+  const b = document.createElement('button');
+  b.textContent = 'Reload';
+  b.style.cssText = 'font:700 16px -apple-system,system-ui,sans-serif;padding:12px 18px;border-radius:10px;border:0;background:#4f7cff;color:#fff';
+  b.onclick = () => location.reload();
+  box.append(msg, b);
+  document.body.appendChild(box);
+}
+addEventListener('error', (e) => e.error instanceof WebAssembly.RuntimeError && crashed());
+addEventListener('unhandledrejection', (e) => e.reason instanceof WebAssembly.RuntimeError && crashed());
+
 async function main() {
   await gate();
   const canvas = document.getElementById('screen');
@@ -75,7 +93,12 @@ async function main() {
   ex.init();
   window.__rust = ex;
   const loop = (t) => {
-    ex.frame(t);
+    try {
+      ex.frame(t);
+    } catch (e) {
+      crashed();
+      throw e;
+    }
     const fb = ex.framebuffer();
     ctx.putImageData(new ImageData(new Uint8ClampedArray(mem.buffer, fb, W * H * 4), W, H), 0, 0);
     requestAnimationFrame(loop);
